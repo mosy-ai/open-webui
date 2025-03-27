@@ -1,3 +1,4 @@
+import enum
 import logging
 import time
 from typing import Optional
@@ -5,7 +6,7 @@ from typing import Optional
 from open_webui.internal.db import Base, JSONField, get_db
 from open_webui.env import SRC_LOG_LEVELS
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, Column, String, Text, JSON
+from sqlalchemy import BigInteger, Column, String, Text, JSON, Enum
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
@@ -14,6 +15,12 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 # Files DB Schema
 ####################
 
+
+class StatusEnum(enum.Enum):
+    UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 class File(Base):
     __tablename__ = "file"
@@ -28,6 +35,8 @@ class File(Base):
     meta = Column(JSON, nullable=True)
 
     access_control = Column(JSON, nullable=True)
+    status = Column(Enum(StatusEnum), default=StatusEnum.UPLOADED, nullable=False)
+    error_message = Column(Text, nullable=True)
 
     created_at = Column(BigInteger)
     updated_at = Column(BigInteger)
@@ -47,6 +56,8 @@ class FileModel(BaseModel):
     meta: Optional[dict] = None
 
     access_control: Optional[dict] = None
+    status: StatusEnum
+    error_message: Optional[str] = None
 
     created_at: Optional[int]  # timestamp in epoch
     updated_at: Optional[int]  # timestamp in epoch
@@ -73,6 +84,8 @@ class FileModelResponse(BaseModel):
     filename: str
     data: Optional[dict] = None
     meta: FileMeta
+    status: StatusEnum
+    error_message: Optional[str] = None
 
     created_at: int  # timestamp in epoch
     updated_at: int  # timestamp in epoch
@@ -95,6 +108,8 @@ class FileForm(BaseModel):
     data: dict = {}
     meta: dict = {}
     access_control: Optional[dict] = None
+    status: StatusEnum
+    error_message: Optional[str] = None
 
 
 class FilesTable:

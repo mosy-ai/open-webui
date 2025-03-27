@@ -101,95 +101,73 @@ class LocalStorageProvider(StorageProvider):
 
 class S3StorageProvider(StorageProvider):
     def __init__(self):
-        config = Config(
-            s3={
-                "use_accelerate_endpoint": S3_USE_ACCELERATE_ENDPOINT,
-                "addressing_style": S3_ADDRESSING_STYLE,
-            },
+        self.s3_client = boto3.client(
+            "s3",
+            region_name=S3_REGION_NAME,
+            endpoint_url=S3_ENDPOINT_URL,
+            aws_access_key_id=S3_ACCESS_KEY_ID,
+            aws_secret_access_key=S3_SECRET_ACCESS_KEY,
         )
-
-        # If access key and secret are provided, use them for authentication
-        if S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY:
-            self.s3_client = boto3.client(
-                "s3",
-                region_name=S3_REGION_NAME,
-                endpoint_url=S3_ENDPOINT_URL,
-                aws_access_key_id=S3_ACCESS_KEY_ID,
-                aws_secret_access_key=S3_SECRET_ACCESS_KEY,
-                config=config,
-            )
-        else:
-            # If no explicit credentials are provided, fall back to default AWS credentials
-            # This supports workload identity (IAM roles for EC2, EKS, etc.)
-            self.s3_client = boto3.client(
-                "s3",
-                region_name=S3_REGION_NAME,
-                endpoint_url=S3_ENDPOINT_URL,
-                config=config,
-            )
-
         self.bucket_name = S3_BUCKET_NAME
-        self.key_prefix = S3_KEY_PREFIX if S3_KEY_PREFIX else ""
 
     def upload_file(self, file: BinaryIO, filename: str) -> Tuple[bytes, str]:
-        """Handles uploading of the file to S3 storage."""
-        _, file_path = LocalStorageProvider.upload_file(file, filename)
+        """Uploads a file to S3-compatible storage."""
+        local_file_path = LocalStorageProvider.upload_file(file, filename)[1]
+        
         try:
-            s3_key = os.path.join(self.key_prefix, filename)
-            self.s3_client.upload_file(file_path, self.bucket_name, s3_key)
+            self.s3_client.upload_file(local_file_path, self.bucket_name, filename)
             return (
-                open(file_path, "rb").read(),
-                "s3://" + self.bucket_name + "/" + s3_key,
+                open(local_file_path, "rb").read(),
+                f"{S3_ENDPOINT_URL}/{self.bucket_name}/{filename}",
             )
         except ClientError as e:
-            raise RuntimeError(f"Error uploading file to S3: {e}")
+            log.error(f"Error uploading file to S3: {e}")
+            raise RuntimeError("Error uploading file to S3.") from e
 
     def get_file(self, file_path: str) -> str:
-        """Handles downloading of the file from S3 storage."""
+        """Downloads a file from S3-compatible storage."""
         try:
-            s3_key = self._extract_s3_key(file_path)
-            local_file_path = self._get_local_file_path(s3_key)
-            self.s3_client.download_file(self.bucket_name, s3_key, local_file_path)
+            local_file_path = f"{UPLOAD_DIR}/{file_path}"
+            self.s3_client.download_file(self.bucket_name, file_path, local_file_path)
             return local_file_path
         except ClientError as e:
-            raise RuntimeError(f"Error downloading file from S3: {e}")
+            log.error(f"Error downloading file from S3: {e}")
+            raise RuntimeError("Error downloading file from S3.") from e
 
     def delete_file(self, file_path: str) -> None:
-        """Handles deletion of the file from S3 storage."""
+        """Deletes a file from S3-compatible storage."""
+        _, key = self._parse_s3_path(file_path)
         try:
-            s3_key = self._extract_s3_key(file_path)
-            self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
+            self.s3_client.delete_object(Bucket=self.bucket_name, Key=key)
         except ClientError as e:
-            raise RuntimeError(f"Error deleting file from S3: {e}")
+            log.error(f"Error deleting file from S3: {e}")
+            raise RuntimeError("Error deleting file from S3.") from e
 
         # Always delete from local storage
         LocalStorageProvider.delete_file(file_path)
 
     def delete_all_files(self) -> None:
-        """Handles deletion of all files from S3 storage."""
+        """Deletes all files from S3-compatible storage."""
         try:
             response = self.s3_client.list_objects_v2(Bucket=self.bucket_name)
             if "Contents" in response:
                 for content in response["Contents"]:
-                    # Skip objects that were not uploaded from open-webui in the first place
-                    if not content["Key"].startswith(self.key_prefix):
-                        continue
-
-                    self.s3_client.delete_object(
-                        Bucket=self.bucket_name, Key=content["Key"]
-                    )
+                    self.s3_client.delete_object(Bucket=self.bucket_name, Key=content["Key"])
         except ClientError as e:
-            raise RuntimeError(f"Error deleting all files from S3: {e}")
+            log.error(f"Error deleting all files from S3: {e}")
+            raise RuntimeError("Error deleting all files from S3.") from e
 
         # Always delete from local storage
         LocalStorageProvider.delete_all_files()
 
-    # The s3 key is the name assigned to an object. It excludes the bucket name, but includes the internal path and the file name.
-    def _extract_s3_key(self, full_file_path: str) -> str:
-        return "/".join(full_file_path.split("//")[1].split("/")[1:])
-
-    def _get_local_file_path(self, s3_key: str) -> str:
-        return f"{UPLOAD_DIR}/{s3_key.split('/')[-1]}"
+    @staticmethod
+    def _parse_s3_path(s3_path: str) -> Tuple[str, str]:
+        """Parses the S3 path and returns the bucket name and key."""
+        try:
+            bucket_name, key = s3_path.split("//")[1].split("/", 1)
+            return bucket_name, key
+        except ValueError as e:
+            raise ValueError(f"Invalid S3 path: {s3_path}") from e
 
 
 class GCSStorageProvider(StorageProvider):

@@ -66,7 +66,7 @@ from open_webui.routers import (
     folders,
     configs,
     groups,
-    files,
+    # files,
     functions,
     memories,
     models,
@@ -76,6 +76,9 @@ from open_webui.routers import (
     tools,
     users,
     utils,
+)
+from open_webui.routers.v2 import (
+    files
 )
 
 from open_webui.routers.retrieval import (
@@ -903,7 +906,7 @@ app.include_router(tools.router, prefix="/api/v1/tools", tags=["tools"])
 app.include_router(memories.router, prefix="/api/v1/memories", tags=["memories"])
 app.include_router(folders.router, prefix="/api/v1/folders", tags=["folders"])
 app.include_router(groups.router, prefix="/api/v1/groups", tags=["groups"])
-app.include_router(files.router, prefix="/api/v1/files", tags=["files"])
+app.include_router(files.router, prefix="/api/v2/files", tags=["files"])
 app.include_router(functions.router, prefix="/api/v1/functions", tags=["functions"])
 app.include_router(
     evaluations.router, prefix="/api/v1/evaluations", tags=["evaluations"]
