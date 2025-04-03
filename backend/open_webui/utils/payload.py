@@ -26,12 +26,18 @@ def apply_model_system_prompt_to_body(
         template_params = {
             "user_name": user.name,
             "user_location": user.info.get("location") if user.info else None,
+            "metadata": {
+                "sender_info": form_data.get("sender_info", {})
+            }
         }
+        print(f"Template params from user {user.name}: {template_params}")
     else:
         template_params = {}
 
     system = prompt_template(system, **template_params)
-
+    if user:
+        print(f"System prompt for {user.name}: {system}")
+    
     form_data["messages"] = add_or_update_system_message(
         system, form_data.get("messages", [])
     )

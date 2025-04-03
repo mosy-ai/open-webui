@@ -171,7 +171,14 @@ def get_rf(
             except Exception as e:
                 log.error(f"JinaReranker error: {e}")
                 raise Exception(ERROR_MESSAGES.DEFAULT(e))
+        elif reranking_model.startswith("rerank-v3"):
+            try:
+                from open_webui.retrieval.models.cohere_remote import CohereReranker
 
+                log.info(f"Using CohereReranker: {reranking_model}")
+                rf = CohereReranker(reranking_model, RERANKING_MODEL_API_KEY)
+            except Exception as e:
+                log.error(f"CohereReranker error: {e}")
     return rf
 
 

@@ -77,6 +77,9 @@ from open_webui.routers import (
     users,
     utils,
 )
+from open_webui.routers.v2 import (
+    chat_channels,
+)
 
 from open_webui.routers.retrieval import (
     get_embedding_function,
@@ -909,6 +912,7 @@ app.include_router(
     evaluations.router, prefix="/api/v1/evaluations", tags=["evaluations"]
 )
 app.include_router(utils.router, prefix="/api/v1/utils", tags=["utils"])
+app.include_router(chat_channels.router, prefix="/api/v2/webhook", tags=["chat_channels_webhook"])
 
 
 try:

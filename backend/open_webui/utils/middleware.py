@@ -557,6 +557,8 @@ async def chat_completion_files_handler(
 
         if len(queries) == 0:
             queries = [get_last_user_message(body["messages"])]
+            
+        log.info(f"queries for RAG: {queries}")
 
         try:
             # Offload get_sources_from_files to a separate thread

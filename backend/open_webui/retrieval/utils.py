@@ -19,6 +19,7 @@ from langchain_core.documents import BaseDocumentCompressor, Document
 from open_webui.config import VECTOR_DB
 from open_webui.retrieval.vector.connector import VECTOR_DB_CLIENT
 from open_webui.retrieval.models.jina_remote import JinaRemoteReranker
+from open_webui.retrieval.models.cohere_remote import CohereReranker
 from open_webui.utils.misc import measure_time
 
 from open_webui.models.users import UserModel
@@ -735,7 +736,7 @@ class RerankCompressor(BaseDocumentCompressor):
         reranking = self.reranking_function is not None
         # We need to separate the jina remote reranker
         # because Jina api call already sort the documents and get the top n results 
-        if isinstance(self.reranking_function, JinaRemoteReranker):
+        if isinstance(self.reranking_function, JinaRemoteReranker) or isinstance(self.reranking_function, CohereReranker):
             # Get the index and score of the documents
             index_with_scores = self.reranking_function.predict(
                 query=query,
