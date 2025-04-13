@@ -1,9 +1,9 @@
 import logging
+import time
 import json
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from fastapi import HTTPException, status
 from pydantic import BaseModel
 from langchain_core.documents import Document
 from datetime import datetime
@@ -11,32 +11,31 @@ from datetime import datetime
 import tiktoken
 from langchain.text_splitter import RecursiveCharacterTextSplitter, TokenTextSplitter
 
-from open_webui.models.files import Files, StatusEnum
-from open_webui.utils.misc import (
-    calculate_sha256_string,
-)
-from open_webui.storage.provider import Storage
-from open_webui.retrieval.vector.connector import VECTOR_DB_CLIENT
-from open_webui.retrieval.loaders.main import Loader
-from open_webui.config import (
-    ENV,
-    BYPASS_EMBEDDING_AND_RETRIEVAL,
-    RAG_EMBEDDING_MODEL_AUTO_UPDATE,
-    RAG_EMBEDDING_MODEL_TRUST_REMOTE_CODE,
-    RAG_RERANKING_MODEL_AUTO_UPDATE,
-    RAG_RERANKING_MODEL_TRUST_REMOTE_CODE,
-    UPLOAD_DIR,
-    DEFAULT_LOCALE,
-    CONTENT_EXTRACTION_ENGINE,
-    TIKA_SERVER_URL,
-    PDF_EXTRACT_IMAGES,
-    DOCUMENT_INTELLIGENCE_ENDPOINT,
-    DOCUMENT_INTELLIGENCE_KEY
+from common.vector_store.vector_factory import VECTOR_DB_CLIENT
+from common.models.files import Files, StatusEnum
 
-)
+# from open_webui.models.files import Files, StatusEnum
+# from open_webui.utils.misc import (
+#     calculate_sha256_string,
+# )
+# from open_webui.storage.provider import Storage
+# from open_webui.retrieval.vector.connector import VECTOR_DB_CLIENT
+# from open_webui.retrieval.loaders.main import Loader
+# from open_webui.config import (
+#     BYPASS_EMBEDDING_AND_RETRIEVAL,
+#     CONTENT_EXTRACTION_ENGINE,
+#     TIKA_SERVER_URL,
+#     PDF_EXTRACT_IMAGES,
+#     DOCUMENT_INTELLIGENCE_ENDPOINT,
+#     DOCUMENT_INTELLIGENCE_KEY
+# )
 
 from data_processing.utils import get_embedding_function
-from open_webui.constants import ERROR_MESSAGES
+from data_processing.errors import ERROR_MESSAGES
+
+from open_webui.utils.misc import (
+    calculate_sha256_string, measure_time
+)
 import traceback
 
 log = logging.getLogger(__name__)
@@ -46,134 +45,201 @@ class ProcessFileForm(BaseModel):
     content: Optional[str] = None
     collection_name: Optional[str] = None
 
+@measure_time
 def save_docs_to_vector_db(
-    docs: List,  # assuming docs is a list of Document objects
+    docs: List[Document],
     collection_name: str,
-    config,         # configuration object containing attributes such as TEXT_SPLITTER, CHUNK_SIZE, etc.
-    ef,             # embedding function helper dependency (i.e., an engine or similar)
+    config: dict,
     metadata: Optional[dict] = None,
     overwrite: bool = False,
     split: bool = True,
     add: bool = False,
-    user=None,
+    user=None
 ) -> bool:
-    def _get_docs_info(docs: List) -> str:
-        docs_info = set()
-        # Trying to select relevant metadata identifying the document.
+    """
+    Process a list of Document objects and insert them into the vector DB.
+    
+    Parameters:
+      - docs: A list of Document instances that hold page_content and metadata.
+      - collection_name: The target collection name in the vector DB.
+      - config: A dict of configuration parameters. Expected keys include:
+          * ENABLE_RAG_HYBRID_SEARCH (bool)
+          * ENABLE_RAG_PARENT_RETRIEVER (bool)
+          * TEXT_SPLITTER (str, e.g., "character" or "token")
+          * CHUNK_SIZE, CHUNK_OVERLAP (integers)
+          * (If token splitter is used) TIKTOKEN_ENCODING_NAME (str)
+          * (Optionally) PARENT_CHUNK_SIZE, PARENT_CHUNK_OVERLAP (integers)
+          * RAG_EMBEDDING_ENGINE, RAG_EMBEDDING_MODEL (str)
+          * embedding_function: a callable that accepts a list of texts and an optional user
+      - metadata: Optional additional metadata (e.g., including a content hash for duplicate checking).
+      - overwrite: If True and the collection exists, delete it before inserting.
+      - add: If True, migrate vectors from an existing file-based collection to the target collection.
+      - user: Optional user context for the embedding function.
+      
+    Returns:
+      - True on success.
+      
+    Raises:
+      - ValueError in case of duplicate content (based on a provided hash) or configuration issues.
+    """
+
+    def _get_docs_info(docs: List[Document]) -> str:
+        info = set()
         for doc in docs:
-            doc_metadata = getattr(doc, "metadata", {})
-            doc_name = doc_metadata.get("name", "")
-            if not doc_name:
-                doc_name = doc_metadata.get("title", "")
-            if not doc_name:
-                doc_name = doc_metadata.get("source", "")
-            if doc_name:
-                docs_info.add(doc_name)
-        return ", ".join(docs_info)
+            mdata = getattr(doc, "metadata", {})
+            name = mdata.get("name") or mdata.get("title") or mdata.get("source", "")
+            if name:
+                info.add(name)
+        return ", ".join(info)
 
-    log.info(f"save_docs_to_vector_db: document {_get_docs_info(docs)} {collection_name}")
+    log.info(f"Processing docs: {_get_docs_info(docs)} in collection {collection_name}")
 
-    # Check for duplicate content based on hash in metadata.
+    # Check for duplicate using a metadata hash if provided.
     if metadata and "hash" in metadata:
         result = VECTOR_DB_CLIENT.query(
             collection_name=collection_name,
-            filter={"hash": metadata["hash"]},
+            filter={"hash": metadata["hash"]}
         )
-        if result is not None:
-            existing_doc_ids = result.ids[0]
-            if existing_doc_ids:
-                log.info(f"Document with hash {metadata['hash']} already exists")
-                raise ValueError(ERROR_MESSAGES.DUPLICATE_CONTENT)
+        if result is not None and result.ids[0]:
+            log.info(f"Document with hash {metadata['hash']} already exists")
+            raise ValueError("Duplicate content detected")
 
-    # If splitting is enabled, split the documents.
-    if split:
-        if config.TEXT_SPLITTER in ["", "character"]:
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=config.CHUNK_SIZE,
-                chunk_overlap=config.CHUNK_OVERLAP,
-                add_start_index=True,
-            )
-        elif config.TEXT_SPLITTER == "token":
-            log.info(f"Using token text splitter: {config.TIKTOKEN_ENCODING_NAME}")
-            tiktoken.get_encoding(str(config.TIKTOKEN_ENCODING_NAME))
-            text_splitter = TokenTextSplitter(
-                encoding_name=str(config.TIKTOKEN_ENCODING_NAME),
-                chunk_size=config.CHUNK_SIZE,
-                chunk_overlap=config.CHUNK_OVERLAP,
-                add_start_index=True,
-            )
+    # Migrate documents if add flag is set.
+    if add:
+        if VECTOR_DB_CLIENT in ["chroma", "qdrant"]:
+            file_collection_name = f"file-{metadata['file_id']}"
         else:
-            raise ValueError(ERROR_MESSAGES.DEFAULT("Invalid text splitter"))
+            raise ValueError("Vector database not supported for file migration")
+        log.info(f"Migrating {len(docs)} documents from {file_collection_name} to {collection_name}")
+        all_documents = VECTOR_DB_CLIENT.get_raw_data(collection_name=file_collection_name)
+        log.info(f"Inserting raw data from {file_collection_name} to {collection_name}")
+        VECTOR_DB_CLIENT.insert_raw_data(
+            collection_name=collection_name,
+            documents=all_documents,
+        )
+        log.info(f"Migration from {file_collection_name} to {collection_name} successful")
+        return True
 
-        docs = text_splitter.split_documents(docs)
+    # Split documents if required.
+    if split:
+        splitter_type = config.get("TEXT_SPLITTER", "character")
+        enable_parent = config.get("ENABLE_RAG_PARENT_RETRIEVER", False)
+        if splitter_type in ["", "character"]:
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=config.get("CHUNK_SIZE", 1000),
+                chunk_overlap=config.get("CHUNK_OVERLAP", 100),
+                add_start_index=True,
+            )
+            if enable_parent:
+                parent_text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=config.get("PARENT_CHUNK_SIZE", 2000),
+                    chunk_overlap=config.get("PARENT_CHUNK_OVERLAP", 200),
+                    add_start_index=True,
+                )
+        elif splitter_type == "token":
+            encoding_name = config.get("TIKTOKEN_ENCODING_NAME", "default")
+            text_splitter = TokenTextSplitter(
+                encoding_name=encoding_name,
+                chunk_size=config.get("CHUNK_SIZE", 1000),
+                chunk_overlap=config.get("CHUNK_OVERLAP", 100),
+                add_start_index=True,
+            )
+            if enable_parent:
+                parent_text_splitter = TokenTextSplitter(
+                    encoding_name=encoding_name,
+                    chunk_size=config.get("PARENT_CHUNK_SIZE", 2000),
+                    chunk_overlap=config.get("PARENT_CHUNK_OVERLAP", 200),
+                    add_start_index=True,
+                )
+        else:
+            raise ValueError("Invalid text splitter configuration")
+
+        if enable_parent:
+            # First, create parent-level chunks.
+            parent_docs = parent_text_splitter.split_documents(docs)
+            parent_ids = [str(uuid.uuid4()) for _ in parent_docs]
+            child_docs = []
+            # (Optional) Prepare parent docs for saving in a separate DB if needed.
+            for i, doc in enumerate(parent_docs):
+                sub_docs = text_splitter.split_documents([doc])
+                parent_id = parent_ids[i]
+                for sub_doc in sub_docs:
+                    sub_doc.metadata["parent_id"] = parent_id
+                child_docs.extend(sub_docs)
+            docs = child_docs
+        else:
+            docs = text_splitter.split_documents(docs)
 
     if len(docs) == 0:
-        raise ValueError(ERROR_MESSAGES.EMPTY_CONTENT)
+        raise ValueError("No content available after splitting")
 
+    # Prepare texts and metadata for embedding.
     texts = [doc.page_content for doc in docs]
-    metadatas = [
-        {
-            **doc.metadata,
-            **(metadata if metadata else {}),
-            "embedding_config": json.dumps(
-                {
-                    "engine": config.RAG_EMBEDDING_ENGINE,
-                    "model": config.RAG_EMBEDDING_MODEL,
-                }
-            ),
-        }
-        for doc in docs
-    ]
+    final_metadata = []
+    context_contents = []
+    for doc in docs:
+        if "context_content" in doc.metadata:
+            context_contents.append(doc.metadata["context_content"])
+            del doc.metadata["context_content"]
+        # Merge document metadata with additional metadata.
+        merged = {**doc.metadata, **(metadata or {})}
+        merged["embedding_config"] = json.dumps({
+            "engine": config.get("RAG_EMBEDDING_ENGINE"),
+            "model": config.get("RAG_EMBEDDING_MODEL")
+        })
+        final_metadata.append(merged)
 
-    # ChromaDB does not like datetime, list or dict formats for metadata so convert them to string.
-    for meta in metadatas:
+    # Normalize metadata values (convert lists/dicts/datetime to string).
+    for meta in final_metadata:
         for key, value in meta.items():
-            if isinstance(value, (datetime, list, dict)):
+            if isinstance(value, (list, dict, datetime)):
                 meta[key] = str(value)
 
-    try:
-        if VECTOR_DB_CLIENT.has_collection(collection_name=collection_name):
-            log.info(f"collection {collection_name} already exists")
-            if overwrite:
-                VECTOR_DB_CLIENT.delete_collection(collection_name=collection_name)
-                log.info(f"deleting existing collection {collection_name}")
-            elif not add:
-                log.info(f"collection {collection_name} already exists, overwrite is False and add is False")
-                return True
+    # If the collection exists, handle overwrite logic.
+    if VECTOR_DB_CLIENT.has_collection(collection_name=collection_name):
+        log.info(f"Collection {collection_name} exists")
+        if overwrite:
+            VECTOR_DB_CLIENT.delete_collection(collection_name=collection_name)
+            log.info(f"Deleted existing collection {collection_name}")
+        elif not add:
+            log.info("Collection exists and overwrite is False; nothing to do")
+            return True
 
-        log.info(f"adding to collection {collection_name}")
-        embedding_function = get_embedding_function(
-            config.RAG_EMBEDDING_ENGINE,
-            config.RAG_EMBEDDING_MODEL,
-            ef,
-            (config.RAG_OPENAI_API_BASE_URL if config.RAG_EMBEDDING_ENGINE == "openai" else config.RAG_OLLAMA_BASE_URL),
-            (config.RAG_OPENAI_API_KEY if config.RAG_EMBEDDING_ENGINE == "openai" else config.RAG_OLLAMA_API_KEY),
-            config.RAG_EMBEDDING_BATCH_SIZE,
-        )
+    log.info(f"Inserting documents into collection {collection_name}")
 
-        # Clean newlines from texts and generate embeddings.
-        cleaned_texts = [text.replace("\n", " ") for text in texts]
-        embeddings = embedding_function(cleaned_texts, user=user)
+    # Get the embedding function from the configuration.
+    embedding_function = config.get("embedding_function")
+    if not embedding_function:
+        raise ValueError("Missing embedding function in configuration")
 
-        items = [
-            {
-                "id": str(uuid.uuid4()),
-                "text": text,
-                "vector": embeddings[idx],
-                "metadata": metadatas[idx],
-            }
-            for idx, text in enumerate(texts)
-        ]
+    start_time = time.time()
+    # Calculate embeddings for all texts.
+    embeddings = embedding_function([text.replace("\n", " ") for text in texts], user=user)
+    end_time = time.time()
+    log.info(f"Embedding completed in {end_time - start_time:.2f} seconds")
 
-        VECTOR_DB_CLIENT.insert(
-            collection_name=collection_name,
-            items=items,
-        )
+    if context_contents:
+        if len(context_contents) != len(texts):
+            raise AssertionError("Mismatch between context_contents and texts")
+        texts = context_contents
 
-        return True
-    except Exception as e:
-        log.exception(e)
-        raise e
+    # Prepare items for upsert in the vector DB.
+    items = []
+    for idx, text in enumerate(texts):
+        items.append({
+            "id": str(uuid.uuid4()),
+            "text": text,
+            "vector": embeddings[idx],
+            "metadata": final_metadata[idx],
+        })
+
+    # Insert the items into the collection.
+    VECTOR_DB_CLIENT.insert(
+        collection_name=collection_name,
+        items=items,
+    )
+
+    return True
 
 def process_file_consumer(form_data: ProcessFileForm):
     """

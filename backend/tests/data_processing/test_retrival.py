@@ -1,7 +1,9 @@
 import json
-
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
+import os
 
 # Import your consumer function and related models/utilities.
 # Adjust the module name 'my_module' as needed.
@@ -14,6 +16,22 @@ from data_processing.retrieval import (
 )
 
 def test_process_file_consumer_with_collection(monkeypatch):
+    # Initialize Qdrant client for verification
+    api_key = os.getenv("QDRANT_API_KEY")
+    if not api_key:
+        pytest.skip("QDRANT_API_KEY environment variable is not set")
+    
+    try:
+        qdrant_client = QdrantClient(
+            host="localhost",
+            port=6333,
+            api_key=api_key
+        )
+        # Test connection
+        qdrant_client.get_collections()
+    except Exception as e:
+        pytest.skip(f"Could not connect to Qdrant: {str(e)}")
+
     # Create a fake file model.
     fake_file = MagicMock()
     fake_file.id = "123"
@@ -41,16 +59,12 @@ def test_process_file_consumer_with_collection(monkeypatch):
     # Patch the hash calculation to return a dummy hash.
     monkeypatch.setattr("data_processing.retrieval.calculate_sha256_string", lambda text: "dummyhash")
 
-    # Patch save_docs_to_vector_db to simulate a successful operation.
-    monkeypatch.setattr("data_processing.retrieval.save_docs_to_vector_db", lambda **kwargs: True)
-
     # Create flags to track whether update functions are called.
     data_updated = False
     def fake_update_file_data_by_id(file_id, data):
         nonlocal data_updated
         data_updated = True
-        # In this branch, text content comes from file.data["content"].
-        assert data == {"content": "initial content"}
+        assert data == {"content": "vector document content"}
     monkeypatch.setattr(Files, "update_file_data_by_id", fake_update_file_data_by_id)
 
     hash_updated = False
@@ -64,10 +78,19 @@ def test_process_file_consumer_with_collection(monkeypatch):
     def fake_update_file_metadata_by_id(file_id, meta):
         nonlocal meta_updated
         meta_updated = True
-        # Expecting the provided collection name and a COMPLETED status.
-        assert meta.get("collection_name") == "custom_collection"
+        assert meta.get("collection_name") == f"file-{fake_file.id}"
         assert meta.get("status") == StatusEnum.COMPLETED
     monkeypatch.setattr(Files, "update_file_metadata_by_id", fake_update_file_metadata_by_id)
+
+    # Mock the Storage.get_file method to return a local file path
+    def mock_get_file(file_path):
+        return file_path
+    monkeypatch.setattr("data_processing.retrieval.Storage.get_file", mock_get_file)
+
+    # Mock the Loader to return a simple document
+    def mock_loader_load(filename, content_type, file_path):
+        return [MagicMock(page_content="vector document content", metadata={})]
+    monkeypatch.setattr("data_processing.retrieval.Loader", lambda **kwargs: MagicMock(load=mock_loader_load))
 
     # Ensure that embedding is enabled.
     monkeypatch.setattr("data_processing.retrieval.BYPASS_EMBEDDING_AND_RETRIEVAL", False)
@@ -79,3 +102,32 @@ def test_process_file_consumer_with_collection(monkeypatch):
     assert data_updated
     assert hash_updated
     assert meta_updated
+
+    # Verify Qdrant insertion
+    collection_name = f"file-{fake_file.id}"
+    
+    try:
+        # Check if collection exists
+        collections = qdrant_client.get_collections().collections
+        collection_names = [collection.name for collection in collections]
+        assert collection_name in collection_names, f"Collection {collection_name} not found in Qdrant"
+
+        # Get collection info
+        collection_info = qdrant_client.get_collection(collection_name=collection_name)
+        assert collection_info.points_count > 0, f"Collection {collection_name} is empty"
+
+        # Query the collection
+        search_result = qdrant_client.scroll(
+            collection_name=collection_name,
+            limit=1
+        )
+        assert len(search_result[0]) > 0, "No documents found in collection"
+        assert "text" in search_result[0][0].payload, "Document payload missing 'text' field"
+        assert "vector" in search_result[0][0].payload, "Document payload missing 'vector' field"
+
+    finally:
+        # Clean up
+        try:
+            qdrant_client.delete_collection(collection_name=collection_name)
+        except Exception as e:
+            print(f"Warning: Failed to clean up collection {collection_name}: {str(e)}")

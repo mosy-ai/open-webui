@@ -5,9 +5,6 @@ import boto3
 import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
-from gcp_storage_emulator.server import create_server
-from google.cloud import storage
-from google.auth.exceptions import DefaultCredentialsError
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../..')))
 
@@ -103,10 +100,20 @@ class TestLocalStorageProvider:
 class TestS3StorageProvider:
     def setup_method(self, method):
         self.Storage = provider.S3StorageProvider()
+        self.Storage.bucket_name = "test-bucket"
         self.file_content = b"test content"
         self.filename = "test.txt"
         self.filename_extra = "test_extra.txt"
         self.file_bytesio_empty = io.BytesIO()
+        
+        # Create the bucket if it doesn't exist
+        try:
+            self.Storage.s3_client.create_bucket(Bucket=self.Storage.bucket_name)
+        except self.Storage.s3_client.exceptions.BucketAlreadyOwnedByYou:
+            # Bucket already exists, which is fine for our tests
+            pass
+        except Exception as e:
+            raise RuntimeError(f"Failed to setup S3 bucket: {e}")
 
     def test_upload_file(self, monkeypatch, tmp_path):
         upload_dir = mock_upload_dir(monkeypatch, tmp_path)
@@ -116,6 +123,7 @@ class TestS3StorageProvider:
             io.BytesIO(self.file_content), self.filename
         )
 
+        # Verify the file exists in S3
         obj = self.Storage.s3_client.get_object(Bucket=self.Storage.bucket_name, Key=self.filename)
         assert self.file_content == obj["Body"].read()
 
@@ -123,86 +131,22 @@ class TestS3StorageProvider:
         assert (upload_dir / self.filename).exists()
         assert (upload_dir / self.filename).read_bytes() == self.file_content
         assert contents == self.file_content
-        # assert s3_file_path == f"s3://{self.Storage.bucket_name}/{self.filename}"
+        assert s3_file_path == f"{provider.S3_ENDPOINT_URL}/{self.Storage.bucket_name}/{self.filename}"
 
     def test_get_file(self):
-        try:
-            local_path = self.Storage.get_file("08a5ea73-ea56-4d1b-b5a1-c74533d9b952_Q&A.pdf")
-        except ClientError as e:
-            pytest.fail(f"Download failed: {e}")
-
-        # Assert
+        # First upload a file
+        self.Storage.upload_file(io.BytesIO(self.file_content), self.filename)
+        
+        # Test getting the file using the S3 URL
+        s3_url = f"{provider.S3_ENDPOINT_URL}/{self.Storage.bucket_name}/{self.filename}"
+        local_path = self.Storage.get_file(s3_url)
         assert os.path.exists(local_path)
-
-
-    # def test_get_file(self, mock_s3_setup, monkeypatch, tmp_path):
-    #     # Setup
-    #     s3_client, bucket_name = mock_s3_setup
-    #     upload_dir = mock_upload_dir(monkeypatch, tmp_path)
-    #     handler = MinIOFileHandler(s3_client=s3_client, logger=None, bucket_name=bucket_name)
-
-    #     # Upload mock file to S3
-    #     key = f"test-folder/{self.filename}"
-    #     s3_client.put_object(Bucket=bucket_name, Key=key, Body=self.file_content)
-
-    #     # Create file URL
-    #     file_url = f"http://localhost:9000/{bucket_name}/{key}"
-
-    #     # Call the `get_file` method
-    #     file_path = handler.get_file(file_url)
-
-    #     # Assertions
-    #     assert file_path == str(upload_dir / self.filename)
-    #     assert (upload_dir / self.filename).exists()
-    #     assert (upload_dir / self.filename).read_bytes() == self.file_content
-
-    # def test_delete_file(self, monkeypatch, tmp_path):
-    #     upload_dir = mock_upload_dir(monkeypatch, tmp_path)
-    #     self.s3_client.create_bucket(Bucket=self.Storage.bucket_name)
-    #     contents, s3_file_path = self.Storage.upload_file(
-    #         io.BytesIO(self.file_content), self.filename
-    #     )
-    #     assert (upload_dir / self.filename).exists()
-    #     self.Storage.delete_file(s3_file_path)
-    #     assert not (upload_dir / self.filename).exists()
-    #     with pytest.raises(ClientError) as exc:
-    #         self.s3_client.Object(self.Storage.bucket_name, self.filename).load()
-    #     error = exc.value.response["Error"]
-    #     assert error["Code"] == "404"
-    #     assert error["Message"] == "Not Found"
-
-    # def test_delete_all_files(self, monkeypatch, tmp_path):
-    #     upload_dir = mock_upload_dir(monkeypatch, tmp_path)
-    #     # create 2 files
-    #     self.s3_client.create_bucket(Bucket=self.Storage.bucket_name)
-    #     self.Storage.upload_file(io.BytesIO(self.file_content), self.filename)
-    #     object = self.s3_client.Object(self.Storage.bucket_name, self.filename)
-    #     assert self.file_content == object.get()["Body"].read()
-    #     assert (upload_dir / self.filename).exists()
-    #     assert (upload_dir / self.filename).read_bytes() == self.file_content
-    #     self.Storage.upload_file(io.BytesIO(self.file_content), self.filename_extra)
-    #     object = self.s3_client.Object(self.Storage.bucket_name, self.filename_extra)
-    #     assert self.file_content == object.get()["Body"].read()
-    #     assert (upload_dir / self.filename).exists()
-    #     assert (upload_dir / self.filename).read_bytes() == self.file_content
-
-    #     self.Storage.delete_all_files()
-    #     assert not (upload_dir / self.filename).exists()
-    #     with pytest.raises(ClientError) as exc:
-    #         self.s3_client.Object(self.Storage.bucket_name, self.filename).load()
-    #     error = exc.value.response["Error"]
-    #     assert error["Code"] == "404"
-    #     assert error["Message"] == "Not Found"
-    #     assert not (upload_dir / self.filename_extra).exists()
-    #     with pytest.raises(ClientError) as exc:
-    #         self.s3_client.Object(self.Storage.bucket_name, self.filename_extra).load()
-    #     error = exc.value.response["Error"]
-    #     assert error["Code"] == "404"
-    #     assert error["Message"] == "Not Found"
-
-    #     self.Storage.delete_all_files()
-    #     assert not (upload_dir / self.filename).exists()
-    #     assert not (upload_dir / self.filename_extra).exists()
+        assert open(local_path, "rb").read() == self.file_content
+        
+        # Test getting the file using just the filename
+        local_path = self.Storage.get_file(self.filename)
+        assert os.path.exists(local_path)
+        assert open(local_path, "rb").read() == self.file_content
 
 
 # class TestGCSStorageProvider:

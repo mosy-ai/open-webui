@@ -12,29 +12,33 @@ from langchain.retrievers import ContextualCompressionRetriever, EnsembleRetriev
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 
+from common.models.users import UserModel
 
-from open_webui.config import VECTOR_DB
-from open_webui.retrieval.vector.connector import VECTOR_DB_CLIENT
-from open_webui.utils.misc import get_last_user_message, calculate_sha256_string
 
-from open_webui.models.users import UserModel
-from open_webui.models.files import Files
+# from open_webui.config import VECTOR_DB
+# from open_webui.retrieval.vector.connector import VECTOR_DB_CLIENT
+# from open_webui.utils.misc import get_last_user_message, calculate_sha256_string
 
-from open_webui.env import (
-    SRC_LOG_LEVELS,
-    OFFLINE_MODE,
-    ENABLE_FORWARD_USER_INFO_HEADERS,
-)
+# from open_webui.models.users import UserModel
+# from open_webui.models.files import Files
+
+# from open_webui.env import (
+#     SRC_LOG_LEVELS,
+#     OFFLINE_MODE,
+#     ENABLE_FORWARD_USER_INFO_HEADERS,
+# )
 
 log = logging.getLogger(__name__)
-log.setLevel(SRC_LOG_LEVELS["RAG"])
-
 
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.retrievers import BaseRetriever
 
+def read_file_minio(file_path: str) -> str:
+    file_path = Storage.get_file(file_path)
+    with open(file_path, "r") as f:
+        return f.read()
 
 class VectorSearchRetriever(BaseRetriever):
     collection_name: Any
