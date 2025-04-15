@@ -14,7 +14,6 @@ from langchain_core.documents import Document
 
 from common.models.users import UserModel
 
-
 # from open_webui.config import VECTOR_DB
 # from open_webui.retrieval.vector.connector import VECTOR_DB_CLIENT
 # from open_webui.utils.misc import get_last_user_message, calculate_sha256_string
@@ -34,11 +33,6 @@ from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.retrievers import BaseRetriever
-
-def read_file_minio(file_path: str) -> str:
-    file_path = Storage.get_file(file_path)
-    with open(file_path, "r") as f:
-        return f.read()
 
 class VectorSearchRetriever(BaseRetriever):
     collection_name: Any
