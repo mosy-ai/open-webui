@@ -1,0 +1,40 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+backend = [
+    "boto3>=1.35.53",
+    "bs4>=0.0.2",
+    "chromadb>=0.6.2",
+    "fastapi>=0.115.7",
+    "markdown>=3.7",
+    "peewee>=3.17.9",
+    "peewee-migrate>=1.12.2",
+    "psycopg2-binary>=2.9.9",
+    "uvicorn>=0.34.0",
+]
+dev = [
+    "pytest>=8.3.4",
+]
+worker = [
+    "fastembed>=0.6.1",
+    "ftfy>=6.2.3",
+    "huggingface-hub>=0.27.1",
+    "langchain>=0.3.19",
+    "langchain-community>=0.3.18",
+    "pandas>=2.2.3",
+    "qdrant-client>=1.12.1",
+    "sentence-transformers>=3.3.1",
+    "tiktoken>=0.8.0",
+    "typer>=0.15.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope="function"
+addopts = "-p no:warnings" 
