@@ -19,7 +19,7 @@ from data_processing.retrieval import save_docs_to_vector_db
 from langchain.text_splitter import RecursiveCharacterTextSplitter, TokenTextSplitter
 
 # Set up test environment variables
-os.environ["QDRANT_URI"] = "http://localhost:6333"
+os.environ["QDRANT_URI"] = "http://localhost:16333"
 os.environ["QDRANT_API_KEY"] = "oNViSToRURpA"
 
 # A minimal Document class for the test (adjust as needed to match your actual Document).
@@ -88,7 +88,6 @@ def test_save_docs_to_vector_db_with_splitting():
     result = save_docs_to_vector_db(
         docs=[doc],
         collection_name=TEST_COLLECTION,
-        config=split_config,
         metadata={"hash": "unique-hash-789", "file_id": "file456"},
         overwrite=True,
         split=True,

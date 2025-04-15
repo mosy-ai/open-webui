@@ -14,7 +14,6 @@ from open_webui.models.files import (
     FileModel,
     FileModelResponse,
     Files,
-    StatusEnum
 )
 from open_webui.internal.rabbitmq import push_to_queue
 from open_webui.routers.retrieval import process_file, ProcessFileForm
@@ -71,8 +70,6 @@ async def upload_file(
                         "size": len(contents),
                         "data": file_metadata
                     },
-                    "status" : StatusEnum.UPLOADED,  # Set the status using the enum value
-                    "error_message": None,
                 }
             ),
         )
@@ -92,7 +89,6 @@ async def upload_file(
             file_item = Files.update_file(
                 file_item.id,
                 error_message=error_message,
-                status=StatusEnum.FAILED,
             )
 
         if file_item:

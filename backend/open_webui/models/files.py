@@ -35,8 +35,6 @@ class File(Base):
     meta = Column(JSON, nullable=True)
 
     access_control = Column(JSON, nullable=True)
-    status = Column(Enum(StatusEnum), default=StatusEnum.UPLOADED, nullable=False)
-    error_message = Column(Text, nullable=True)
 
     created_at = Column(BigInteger)
     updated_at = Column(BigInteger)
@@ -56,8 +54,6 @@ class FileModel(BaseModel):
     meta: Optional[dict] = None
 
     access_control: Optional[dict] = None
-    status: StatusEnum
-    error_message: Optional[str] = None
 
     created_at: Optional[int]  # timestamp in epoch
     updated_at: Optional[int]  # timestamp in epoch
@@ -84,8 +80,6 @@ class FileModelResponse(BaseModel):
     filename: str
     data: Optional[dict] = None
     meta: FileMeta
-    status: StatusEnum
-    error_message: Optional[str] = None
 
     created_at: int  # timestamp in epoch
     updated_at: int  # timestamp in epoch
@@ -108,8 +102,6 @@ class FileForm(BaseModel):
     data: dict = {}
     meta: dict = {}
     access_control: Optional[dict] = None
-    status: StatusEnum
-    error_message: Optional[str] = None
 
 
 class FilesTable:
