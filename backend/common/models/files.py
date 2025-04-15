@@ -15,12 +15,10 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 # Files DB Schema
 ####################
 
-
-class StatusEnum(enum.Enum):
-    UPLOADED = "uploaded"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+class ProcessFileForm(BaseModel):
+    file_id: str
+    content: Optional[str] = None
+    collection_name: Optional[str] = None
 
 class File(Base):
     __tablename__ = "file"
@@ -133,8 +131,10 @@ class FilesTable:
         with get_db() as db:
             try:
                 file = db.get(File, id)
+                print(f"File: {file}")
                 return FileModel.model_validate(file)
-            except Exception:
+            except Exception as e:
+                log.exception(f"Error getting file by id: {e}")
                 return None
 
     def get_file_metadata_by_id(self, id: str) -> Optional[FileMetadataResponse]:

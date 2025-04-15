@@ -14,7 +14,7 @@ from common.models.vector import VectorItem, GetResult, SearchResult, ScoredPoin
 log = logging.getLogger(__name__)
 
 # Assume these configuration variables are set via environment or config file.
-QDRANT_URI = "http://localhost:6333"
+QDRANT_URI = "http://localhost:16333"
 QDRANT_API_KEY = "oNViSToRURpA"
 
 NO_LIMIT = 10000
