@@ -1114,6 +1114,7 @@ def process_file(
                     PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
                     DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
                     DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
+                    DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
                 )
                 docs = loader.load(
                     file.filename, file.meta.get("content_type"), file_path
