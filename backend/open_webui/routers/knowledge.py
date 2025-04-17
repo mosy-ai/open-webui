@@ -441,17 +441,25 @@ def remove_file_from_knowledge_by_id(
         )
 
     # Remove content from the vector database
-    VECTOR_DB_CLIENT.delete(
-        collection_name=knowledge.id, filter={"file_id": form_data.file_id}
-    )
+    try:
+        VECTOR_DB_CLIENT.delete(
+            collection_name=knowledge.id, filter={"file_id": form_data.file_id}
+        )
+    except Exception as e:
+        log.debug("This was most likely caused by bypassing embedding processing")
+        log.debug(e)
+        pass
 
-    DocumentDBs.delete_by_collection_name_and_file_id(knowledge.id, form_data.file_id)
-
-    # Remove the file's collection from vector database
-    file_collection = f"file-{form_data.file_id}"
-    if VECTOR_DB_CLIENT.has_collection(collection_name=file_collection):
-        VECTOR_DB_CLIENT.delete_collection(collection_name=file_collection)
-        DocumentDBs.delete_by_collection_name(file_collection)
+    try:
+        # Remove the file's collection from vector database
+        file_collection = f"file-{form_data.file_id}"
+        if VECTOR_DB_CLIENT.has_collection(collection_name=file_collection):
+            VECTOR_DB_CLIENT.delete_collection(collection_name=file_collection)
+            DocumentDBs.delete_by_collection_name(file_collection)
+    except Exception as e:
+        log.debug("This was most likely caused by bypassing embedding processing")
+        log.debug(e)
+        pass
 
     # Delete file from database
     Files.delete_file_by_id(form_data.file_id)

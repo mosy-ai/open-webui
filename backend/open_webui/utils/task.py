@@ -39,7 +39,7 @@ def prompt_variables_template(template: str, variables: dict[str, str]) -> str:
 
 
 def prompt_template(
-    template: str, user_name: Optional[str] = None, user_location: Optional[str] = None
+    template: str, user_name: Optional[str] = None, user_location: Optional[str] = None, metadata: Optional[dict] = None
 ) -> str:
     # Get the current date
     current_date = datetime.now()
@@ -69,7 +69,15 @@ def prompt_template(
     else:
         # Replace {{USER_LOCATION}} in the template with "Unknown"
         template = template.replace("{{USER_LOCATION}}", "Unknown")
-
+    
+    # This one is used with external chat channel like facebook
+    ## It will add client info to the prompt so that we can respond in a personalized way
+    if metadata and metadata.get("sender_info"):
+        sender_info = metadata["sender_info"]
+        template = template.replace("{{SENDER_FIRST_NAME}}", sender_info.get("first_name", "Unknown"))
+        template = template.replace("{{SENDER_LAST_NAME}}", sender_info.get("last_name", "Unknown"))
+        template = template.replace("{{SENDER_GENDER}}", sender_info.get("gender", "Unknown"))
+        
     return template
 
 
@@ -283,6 +291,9 @@ def query_generation_template(
     template: str, messages: list[dict], user: Optional[dict] = None
 ) -> str:
     prompt = get_last_user_message(messages)
+    if "{{prompt}}" in template:
+        # Exclude the last message from the messages list
+        messages = messages[:-1]
     template = replace_prompt_variable(template, prompt)
     template = replace_messages_variable(template, messages)
 

@@ -443,6 +443,8 @@ async def generate_queries(
         template, form_data["messages"], {"name": user.name}
     )
 
+    log.info(f"Query transformation content: {content}")
+
     payload = {
         "model": task_model_id,
         "messages": [{"role": "user", "content": content}],

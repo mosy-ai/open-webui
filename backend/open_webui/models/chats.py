@@ -105,9 +105,11 @@ class ChatTitleIdResponse(BaseModel):
 
 
 class ChatTable:
-    def insert_new_chat(self, user_id: str, form_data: ChatForm) -> Optional[ChatModel]:
+    def insert_new_chat(
+        self, user_id: str, form_data: ChatForm, chat_id: Optional[str] = None
+    ) -> Optional[ChatModel]:
         with get_db() as db:
-            id = str(uuid.uuid4())
+            id = str(uuid.uuid4()) if chat_id is None else chat_id
             chat = ChatModel(
                 **{
                     "id": id,
@@ -234,18 +236,23 @@ class ChatTable:
 
         chat = chat.chat
         history = chat.get("history", {})
+        messages = chat.get("messages", {})
 
         if message_id in history.get("messages", {}):
             history["messages"][message_id] = {
                 **history["messages"][message_id],
                 **message,
             }
+            messages[-1] = history["messages"][message_id]
         else:
             history["messages"][message_id] = message
+            messages.append(message)
 
         history["currentId"] = message_id
 
         chat["history"] = history
+        chat["messages"] = messages
+        
         return self.update_chat_by_id(id, chat)
 
     def add_message_status_to_chat_by_id_and_message_id(

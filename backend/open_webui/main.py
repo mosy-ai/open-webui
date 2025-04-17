@@ -77,6 +77,9 @@ from open_webui.routers import (
     users,
     utils,
 )
+from open_webui.routers.v2 import (
+    chat_channels,
+)
 
 from open_webui.routers.retrieval import (
     get_embedding_function,
@@ -84,11 +87,12 @@ from open_webui.routers.retrieval import (
     get_rf,
 )
 
-from open_webui.internal.db import Session
+from open_webui.internal.db import Session, engine
 
 from open_webui.models.functions import Functions
 from open_webui.models.models import Models
 from open_webui.models.users import UserModel, Users
+from open_webui.models.chats import Chats
 
 from open_webui.config import (
     LICENSE_KEY,
@@ -155,6 +159,7 @@ from open_webui.config import (
     AUDIO_TTS_AZURE_SPEECH_REGION,
     AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT,
     PLAYWRIGHT_WS_URI,
+    PLAYWRIGHT_TIMEOUT,
     FIRECRAWL_API_BASE_URL,
     FIRECRAWL_API_KEY,
     RAG_WEB_LOADER_ENGINE,
@@ -186,9 +191,11 @@ from open_webui.config import (
     CHUNK_SIZE,
     CONTENT_EXTRACTION_ENGINE,
     TIKA_SERVER_URL,
+    DOCLING_SERVER_URL,
     DOCUMENT_INTELLIGENCE_ENDPOINT,
     DOCUMENT_INTELLIGENCE_KEY,
     RAG_TOP_K,
+    RAG_TOP_K_RERANKER,
     RAG_TEXT_SPLITTER,
     TIKTOKEN_ENCODING_NAME,
     PDF_EXTRACT_IMAGES,
@@ -212,6 +219,7 @@ from open_webui.config import (
     SERPSTACK_API_KEY,
     SERPSTACK_HTTPS,
     TAVILY_API_KEY,
+    TAVILY_EXTRACT_DEPTH,
     BING_SEARCH_V7_ENDPOINT,
     BING_SEARCH_V7_SUBSCRIPTION_KEY,
     BRAVE_SEARCH_API_KEY,
@@ -251,6 +259,7 @@ from open_webui.config import (
     ENABLE_CHANNELS,
     ENABLE_COMMUNITY_SHARING,
     ENABLE_MESSAGE_RATING,
+    ENABLE_USER_WEBHOOKS,
     ENABLE_EVALUATION_ARENA_MODELS,
     USER_PERMISSIONS,
     DEFAULT_USER_ROLE,
@@ -315,6 +324,9 @@ from open_webui.env import (
     AUDIT_EXCLUDED_PATHS,
     AUDIT_LOG_LEVEL,
     CHANGELOG,
+    REDIS_URL,
+    REDIS_SENTINEL_HOSTS,
+    REDIS_SENTINEL_PORT,
     GLOBAL_LOG_LEVEL,
     MAX_BODY_LOG_SIZE,
     SAFE_MODE,
@@ -330,6 +342,7 @@ from open_webui.env import (
     BYPASS_MODEL_ACCESS_CONTROL,
     RESET_CONFIG_ON_START,
     OFFLINE_MODE,
+    ENABLE_OTEL,
 )
 
 
@@ -356,6 +369,8 @@ from open_webui.utils.oauth import OAuthManager
 from open_webui.utils.security_headers import SecurityHeadersMiddleware
 
 from open_webui.tasks import stop_task, list_tasks  # Import from tasks.py
+
+from open_webui.utils.redis import get_sentinels_from_env
 
 from open_webui.decorators.rate_limit import rate_limit
 
@@ -423,10 +438,26 @@ app = FastAPI(
 
 oauth_manager = OAuthManager(app)
 
-app.state.config = AppConfig()
+app.state.config = AppConfig(
+    redis_url=REDIS_URL,
+    redis_sentinels=get_sentinels_from_env(REDIS_SENTINEL_HOSTS, REDIS_SENTINEL_PORT),
+)
 
 app.state.WEBUI_NAME = WEBUI_NAME
 app.state.LICENSE_METADATA = None
+
+
+########################################
+#
+# OPENTELEMETRY
+#
+########################################
+
+if ENABLE_OTEL:
+    from open_webui.utils.telemetry.setup import setup as setup_opentelemetry
+
+    setup_opentelemetry(app=app, db_engine=engine)
+
 
 ########################################
 #
@@ -497,6 +528,7 @@ app.state.config.MODEL_ORDER_LIST = MODEL_ORDER_LIST
 app.state.config.ENABLE_CHANNELS = ENABLE_CHANNELS
 app.state.config.ENABLE_COMMUNITY_SHARING = ENABLE_COMMUNITY_SHARING
 app.state.config.ENABLE_MESSAGE_RATING = ENABLE_MESSAGE_RATING
+app.state.config.ENABLE_USER_WEBHOOKS = ENABLE_USER_WEBHOOKS
 
 app.state.config.ENABLE_EVALUATION_ARENA_MODELS = ENABLE_EVALUATION_ARENA_MODELS
 app.state.config.EVALUATION_ARENA_MODELS = EVALUATION_ARENA_MODELS
@@ -540,6 +572,7 @@ app.state.FUNCTIONS = {}
 
 
 app.state.config.TOP_K = RAG_TOP_K
+app.state.config.TOP_K_RERANKER = RAG_TOP_K_RERANKER
 app.state.config.RELEVANCE_THRESHOLD = RAG_RELEVANCE_THRESHOLD
 app.state.config.FILE_MAX_SIZE = RAG_FILE_MAX_SIZE
 app.state.config.FILE_MAX_COUNT = RAG_FILE_MAX_COUNT
@@ -558,6 +591,7 @@ app.state.config.ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION = (
 
 app.state.config.CONTENT_EXTRACTION_ENGINE = CONTENT_EXTRACTION_ENGINE
 app.state.config.TIKA_SERVER_URL = TIKA_SERVER_URL
+app.state.config.DOCLING_SERVER_URL = DOCLING_SERVER_URL
 app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT = DOCUMENT_INTELLIGENCE_ENDPOINT
 app.state.config.DOCUMENT_INTELLIGENCE_KEY = DOCUMENT_INTELLIGENCE_KEY
 
@@ -621,8 +655,10 @@ app.state.config.RAG_WEB_SEARCH_CONCURRENT_REQUESTS = RAG_WEB_SEARCH_CONCURRENT_
 app.state.config.RAG_WEB_LOADER_ENGINE = RAG_WEB_LOADER_ENGINE
 app.state.config.RAG_WEB_SEARCH_TRUST_ENV = RAG_WEB_SEARCH_TRUST_ENV
 app.state.config.PLAYWRIGHT_WS_URI = PLAYWRIGHT_WS_URI
+app.state.config.PLAYWRIGHT_TIMEOUT = PLAYWRIGHT_TIMEOUT
 app.state.config.FIRECRAWL_API_BASE_URL = FIRECRAWL_API_BASE_URL
 app.state.config.FIRECRAWL_API_KEY = FIRECRAWL_API_KEY
+app.state.config.TAVILY_EXTRACT_DEPTH = TAVILY_EXTRACT_DEPTH
 
 app.state.EMBEDDING_FUNCTION = None
 app.state.ef = None
@@ -909,6 +945,7 @@ app.include_router(
     evaluations.router, prefix="/api/v1/evaluations", tags=["evaluations"]
 )
 app.include_router(utils.router, prefix="/api/v1/utils", tags=["utils"])
+app.include_router(chat_channels.router, prefix="/api/v2/webhook", tags=["chat_channels_webhook"])
 
 
 try:
@@ -956,14 +993,24 @@ async def get_models(request: Request, user=Depends(get_verified_user)):
 
         return filtered_models
 
-    models = await get_all_models(request, user=user)
+    all_models = await get_all_models(request, user=user)
 
-    # Filter out filter pipelines
-    models = [
-        model
-        for model in models
-        if "pipeline" not in model or model["pipeline"].get("type", None) != "filter"
-    ]
+    models = []
+    for model in all_models:
+        # Filter out filter pipelines
+        if "pipeline" in model and model["pipeline"].get("type", None) == "filter":
+            continue
+
+        model_tags = [
+            tag.get("name")
+            for tag in model.get("info", {}).get("meta", {}).get("tags", [])
+        ]
+        tags = [tag.get("name") for tag in model.get("tags", [])]
+
+        tags = list(set(model_tags + tags))
+        model["tags"] = [{"name": tag} for tag in tags]
+
+        models.append(model)
 
     model_order_list = request.app.state.config.MODEL_ORDER_LIST
     if model_order_list:
@@ -1030,6 +1077,7 @@ async def chat_completion(
             "message_id": form_data.pop("id", None),
             "session_id": form_data.pop("session_id", None),
             "tool_ids": form_data.get("tool_ids", None),
+            "tool_servers": form_data.pop("tool_servers", None),
             "files": form_data.get("files", None),
             "features": form_data.get("features", None),
             "variables": form_data.get("variables", None),
@@ -1056,6 +1104,14 @@ async def chat_completion(
 
     except Exception as e:
         log.debug(f"Error processing chat payload: {e}")
+        Chats.upsert_message_to_chat_by_id_and_message_id(
+            metadata["chat_id"],
+            metadata["message_id"],
+            {
+                "error": {"content": str(e)},
+            },
+        )
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -1191,6 +1247,7 @@ async def get_app_config(request: Request):
                     "enable_autocomplete_generation": app.state.config.ENABLE_AUTOCOMPLETE_GENERATION,
                     "enable_community_sharing": app.state.config.ENABLE_COMMUNITY_SHARING,
                     "enable_message_rating": app.state.config.ENABLE_MESSAGE_RATING,
+                    "enable_user_webhooks": app.state.config.ENABLE_USER_WEBHOOKS,
                     "enable_admin_export": ENABLE_ADMIN_EXPORT,
                     "enable_admin_chat_access": ENABLE_ADMIN_CHAT_ACCESS,
                     "enable_google_drive_integration": app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION,
