@@ -1,0 +1,6 @@
+docling
+markitdown
+crawl4ai
+tenacity
+fastapi
+uvicorn

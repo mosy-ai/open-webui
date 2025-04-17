@@ -1,7 +1,9 @@
 import os
+import json
 import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import List
 
 from data_processing.pdf_extractors.extraction_service import (
     MarkdownExtractionService,
@@ -9,6 +11,9 @@ from data_processing.pdf_extractors.extraction_service import (
 from data_processing.pdf_extractors.factories import (
     DoclingFactory,
     MarkItDownFactory,
+)
+from data_processing.url_extractors.crawl4ai_adapter import (
+    Crawl4AIAdapter,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -21,6 +26,9 @@ class ExtractionRequest(BaseModel):
     file_path: str
     image_export_mode: str = "placeholder"
     table_mode: str = "accurate"
+    
+class UrlsRequest(BaseModel):
+    urls: List[str]
 
 # Dummy Document model for the response.
 class Document(BaseModel):
@@ -34,7 +42,7 @@ async def pdf_extractor_endpoint(payload: ExtractionRequest):
     processes the file, and returns extracted document content in JSON.
     """
     file_path = payload.file_path
-    log.debug(f"Received file path: {file_path}")
+    # log.debug(f"Received file path: {file_path}")
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=400, detail=f"File not found: {file_path}")
@@ -60,3 +68,21 @@ async def pdf_extractor_endpoint(payload: ExtractionRequest):
         # Clean up the file.
         if os.path.exists(file_path):
             os.remove(file_path)
+            
+@app.post("/url-extractor")
+async def url_extractor_batch(req: UrlsRequest):
+    adapter = Crawl4AIAdapter()
+    documents = []
+
+    for url in req.urls:
+        try:
+            crawl_result = await adapter.crawl(url)
+        except Exception as e:
+            log.exception("Error crawling %s", url)
+
+        documents.append({
+            "source": url,
+            "md_content": crawl_result.markdown
+        })
+
+    return {"documents": documents}
