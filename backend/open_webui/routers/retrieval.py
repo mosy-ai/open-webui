@@ -1030,7 +1030,6 @@ def save_docs_to_vector_db(
         VECTOR_DB_CLIENT.insert(
             collection_name=collection_name,
             items=items,
-            enable_hybrid_search=request.app.state.config.ENABLE_RAG_HYBRID_SEARCH,
         )
 
         return True
@@ -1135,12 +1134,14 @@ def process_file(
                     PDF_EXTRACT_IMAGES=request.app.state.config.PDF_EXTRACT_IMAGES,
                     DOCUMENT_INTELLIGENCE_ENDPOINT=request.app.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
                     DOCUMENT_INTELLIGENCE_KEY=request.app.state.config.DOCUMENT_INTELLIGENCE_KEY,
-                    DOCLING_SERVER_URL=request.app.state.config.DOCLING_SERVER_URL,
+                    CRAWL4AI_SERVER_URL=request.app.state.config.CRAWL4AI_SERVER_URL,
                 )
                 docs = loader.load(
                     file.filename, file.meta.get("content_type"), file_path
                 )
-
+                
+                log.info(f"docs: {docs}")
+                
                 docs = [
                     Document(
                         page_content=doc.page_content,
@@ -1149,7 +1150,7 @@ def process_file(
                             "name": file.filename,
                             "created_by": file.user_id,
                             "file_id": file.id,
-                            "source": file.filename,
+                            "source": doc.metadata.get("source") or file.filename,
                         },
                     )
                     for doc in docs
@@ -1168,10 +1169,12 @@ def process_file(
                     )
                 ]
             text_content = " ".join([doc.page_content for doc in docs])
-
-        Files.update_file_data_by_id(
+            
+        source_url = docs[0].metadata.get("source")
+        Files.update_file_by_id(
             file.id,
-            {"content": text_content},
+            new_content=text_content,
+            extra_meta={"source": source_url}
         )
 
         hash = calculate_sha256_string(text_content)
@@ -1253,7 +1256,7 @@ def process_text(
         )
     ]
     text_content = form_data.content
-    log.debug(f"text_content: {text_content}")
+    # log.debug(f"text_content: {text_content}")
 
     result = save_docs_to_vector_db(request, docs, collection_name, user=user)
     if result:
