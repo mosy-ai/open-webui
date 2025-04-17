@@ -1,10 +1,7 @@
 import pytest
 import ftfy
 
-from langchain_community.document_loaders import TextLoader
-from langchain_core.documents import Document
-
-# Import the Loader and Document from your module.
+from open_webui.env import DATA_DIR
 from open_webui.storage.provider import Storage
 from open_webui.retrieval.loaders.main import Loader, DoclingLoader
 
@@ -31,6 +28,7 @@ class DummyConfig:
     PDF_EXTRACT_IMAGES = False
     DOCUMENT_INTELLIGENCE_ENDPOINT = "dummy_endpoint"
     DOCUMENT_INTELLIGENCE_KEY = "dummy_key"
+    CRAWL4AI_SERVER_URL = "http://127.0.0.1:8000"
     
 class DummyAppState:
     config = DummyConfig()
@@ -79,3 +77,68 @@ def test_loader_docling_branch(monkeypatch):
     doc = docs[0]
     assert doc.page_content == expected_content
     assert doc.metadata == {"source": "DoclingFake"}
+    
+def test_loader_excel_branch(monkeypatch):
+    """
+    Test that Loader correctly ingests Excel files into SQLite and returns
+    a single Document containing the sheet as a markdown table.
+    """
+    # 1) Prepare a dummy Excel file path
+    
+    dummy_request = DummyRequest()
+    
+    filename = "Build Sheet.xlsx"
+    file_path = "Build Sheet.xlsx"
+    file_content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    
+    file_path = Storage.get_file(file_path)
+    
+    loader = Loader(
+        engine=dummy_request.state.config.CONTENT_EXTRACTION_ENGINE,
+        TIKA_SERVER_URL=dummy_request.state.config.TIKA_SERVER_URL,
+        PDF_EXTRACT_IMAGES=dummy_request.state.config.PDF_EXTRACT_IMAGES,
+        DOCUMENT_INTELLIGENCE_ENDPOINT=dummy_request.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
+        DOCUMENT_INTELLIGENCE_KEY=dummy_request.state.config.DOCUMENT_INTELLIGENCE_KEY,
+        DOCLING_SERVER_URL=dummy_request.state.config.DOCLING_SERVER_URL,
+    )
+    
+    docs = loader.load(
+        filename,
+        file_content_type,
+        file_path
+    )
+    assert len(docs) == 1
+
+def test_loader_crawl4ai_branch(monkeypatch):
+    """
+    Test that Loader correctly ingests URLs into SQLite and returns
+    a single Document containing the URL's content.
+    """
+    dummy_request = DummyRequest()
+    
+    filename = "url.txt"
+    file_path = "url.txt"
+    file_content_type = "text/plain"
+    
+    file_path = Storage.get_file(file_path)
+    
+    loader = Loader(
+        engine=dummy_request.state.config.CONTENT_EXTRACTION_ENGINE,
+        TIKA_SERVER_URL=dummy_request.state.config.TIKA_SERVER_URL,
+        PDF_EXTRACT_IMAGES=dummy_request.state.config.PDF_EXTRACT_IMAGES,
+        DOCUMENT_INTELLIGENCE_ENDPOINT=dummy_request.state.config.DOCUMENT_INTELLIGENCE_ENDPOINT,
+        DOCUMENT_INTELLIGENCE_KEY=dummy_request.state.config.DOCUMENT_INTELLIGENCE_KEY,
+        DOCLING_SERVER_URL=dummy_request.state.config.DOCLING_SERVER_URL,
+        CRAWL4AI_SERVER_URL=dummy_request.state.config.CRAWL4AI_SERVER_URL,
+    )
+    
+    docs = loader.load(
+        filename,
+        file_content_type,
+        file_path)
+    
+    assert len(docs) == 1
+    doc = docs[0]
+    print(f"Doc: {doc}")
+    assert doc.page_content == "Fake content from Crawl4aiLoader"
+    assert doc.metadata == {"source": "Crawl4aiFake"}
