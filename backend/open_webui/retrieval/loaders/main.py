@@ -1,7 +1,11 @@
+import os
 import requests
 import logging
 import ftfy
 import sys
+import pandas as pd
+import sqlite3
+from typing import List, Union
 
 from langchain_community.document_loaders import (
     AzureAIDocumentIntelligenceLoader,
@@ -20,10 +24,15 @@ from langchain_community.document_loaders import (
     YoutubeLoader,
 )
 from langchain_core.documents import Document
+from langchain_community.utilities import SQLDatabase
+from langchain_community.llms import OpenAI
+from langchain_experimental.sql import SQLDatabaseChain
+
 
 from open_webui.retrieval.loaders.mistral import MistralLoader
+from open_webui.retrieval.loaders.custom_loader.custom_loader_factory import get_api_loader
 
-from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL
+from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL, DATA_DIR
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
@@ -167,6 +176,61 @@ class DoclingLoader:
                 except Exception:
                     error_msg += f" - {r.text}"
             raise Exception(f"Error calling Docling: {error_msg}")
+        
+def _excel_to_sqlite(excel_path: str, db_path: str, table_name: str) -> list[Document]:
+    """
+    1) Read the Excel file into a pandas DataFrame
+    2) Write that DataFrame into a new SQLite database at db_path, table=table_name
+    3) Render the DataFrame as Markdown and return it as a single Document
+    """
+    # 1) Load
+    df = pd.read_excel(excel_path)
+
+    # 2) Ensure output dir exists
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    # 3) Write to SQLite
+    conn = sqlite3.connect(db_path)
+    df.to_sql(table_name, conn, if_exists="replace", index=False)
+    conn.commit()
+    conn.close()
+
+    # 4) Render to markdown
+    md_table = df.to_markdown(index=False)
+
+    # 5) Build metadata exactly as your test expects
+    metadata = {
+        "source": os.path.basename(excel_path),
+        "Content-Type": "application/vnd-ms-excel"
+    }
+
+    # 6) Return a list of one Document
+    print(f"Metadata: {metadata}")
+    print(f"Markdown table: {md_table}")
+    return [Document(page_content=md_table, metadata=metadata)]
+
+
+FILE_LOADERS = {
+    "pdf":      lambda fp, ct, kw: PyPDFLoader(fp, extract_images=kw.get("PDF_EXTRACT_IMAGES")),
+    "csv":      lambda fp, ct, kw: CSVLoader(fp, autodetect_encoding=True),
+    "rst":      lambda fp, ct, kw: UnstructuredRSTLoader(fp, mode="elements"),
+    "xml":      lambda fp, ct, kw: UnstructuredXMLLoader(fp),
+    "htm":      lambda fp, ct, kw: BSHTMLLoader(fp, open_encoding="unicode_escape"),
+    "html":     lambda fp, ct, kw: BSHTMLLoader(fp, open_encoding="unicode_escape"),
+    "md":       lambda fp, ct, kw: TextLoader(fp, autodetect_encoding=True),
+    "epub":     lambda fp, ct, kw: UnstructuredEPubLoader(fp),
+    "docx":     lambda fp, ct, kw: Docx2txtLoader(fp),
+    "ppt":      lambda fp, ct, kw: UnstructuredPowerPointLoader(fp),
+    "pptx":     lambda fp, ct, kw: UnstructuredPowerPointLoader(fp),
+    "msg":      lambda fp, ct, kw: OutlookMessageLoader(fp),
+    "txt":      lambda fp, ct, kw: TextLoader(fp, autodetect_encoding=True),
+}
+
+EXCEL_EXTS       = {"xls", "xlsx"}
+EXCEL_MIME_TYPES = {
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 
 class Loader:
@@ -176,15 +240,25 @@ class Loader:
 
     def load(
         self, filename: str, file_content_type: str, file_path: str
-    ) -> list[Document]:
-        loader = self._get_loader(filename, file_content_type, file_path)
-        docs = loader.load()
+    ) -> List[Document]:
+        # _get_loader may return either:
+        #  - a loader instance (with .load()), or
+        #  - a List[Document] directly (Excel branch)
+        loader_or_docs: Union[object, List[Document]] = self._get_loader(
+            filename, file_content_type, file_path
+        )
 
+        # If it's already a list of Documents, use it directly
+        if isinstance(loader_or_docs, list):
+            raw_docs = loader_or_docs
+        else:
+            # Otherwise assume it’s a loader and call .load()
+            raw_docs = loader_or_docs.load()
+
+        # Normalize/fix text for all docs
         return [
-            Document(
-                page_content=ftfy.fix_text(doc.page_content), metadata=doc.metadata
-            )
-            for doc in docs
+            Document(page_content=ftfy.fix_text(doc.page_content), metadata=doc.metadata)
+            for doc in raw_docs
         ]
 
     def _is_text_file(self, file_ext: str, file_content_type: str) -> bool:
@@ -193,94 +267,49 @@ class Loader:
         )
 
     def _get_loader(self, filename: str, file_content_type: str, file_path: str):
-        file_ext = filename.split(".")[-1].lower()
+        ext = os.path.splitext(filename)[1].lower().lstrip('.')
+        ct = file_content_type.lower()
+        print(self.kwargs)
+        print(f"Ext: {ext}, CT: {ct}")
 
-        if self.engine == "tika" and self.kwargs.get("TIKA_SERVER_URL"):
-            if self._is_text_file(file_ext, file_content_type):
-                loader = TextLoader(file_path, autodetect_encoding=True)
-            else:
-                loader = TikaLoader(
-                    url=self.kwargs.get("TIKA_SERVER_URL"),
-                    file_path=file_path,
-                    mime_type=file_content_type,
-                )
-        elif self.engine == "docling" and self.kwargs.get("DOCLING_SERVER_URL"):
-            if self._is_text_file(file_ext, file_content_type):
-                loader = TextLoader(file_path, autodetect_encoding=True)
-            else:
-                loader = DoclingLoader(
-                    url=self.kwargs.get("DOCLING_SERVER_URL"),
-                    file_path=file_path,
-                    mime_type=file_content_type,
-                )
-        elif (
-            self.engine == "document_intelligence"
-            and self.kwargs.get("DOCUMENT_INTELLIGENCE_ENDPOINT") != ""
-            and self.kwargs.get("DOCUMENT_INTELLIGENCE_KEY") != ""
-            and (
-                file_ext in ["pdf", "xls", "xlsx", "docx", "ppt", "pptx"]
-                or file_content_type
-                in [
-                    "application/vnd.ms-excel",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "application/vnd.ms-powerpoint",
-                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                ]
-            )
-        ):
-            loader = AzureAIDocumentIntelligenceLoader(
-                file_path=file_path,
-                api_endpoint=self.kwargs.get("DOCUMENT_INTELLIGENCE_ENDPOINT"),
-                api_key=self.kwargs.get("DOCUMENT_INTELLIGENCE_KEY"),
-            )
-        elif (
-            self.engine == "mistral_ocr"
-            and self.kwargs.get("MISTRAL_OCR_API_KEY") != ""
-            and file_ext
-            in ["pdf"]  # Mistral OCR currently only supports PDF and images
-        ):
-            loader = MistralLoader(
-                api_key=self.kwargs.get("MISTRAL_OCR_API_KEY"), file_path=file_path
-            )
-        else:
-            if file_ext == "pdf":
-                loader = PyPDFLoader(
-                    file_path, extract_images=self.kwargs.get("PDF_EXTRACT_IMAGES")
-                )
-            elif file_ext == "csv":
-                loader = CSVLoader(file_path, autodetect_encoding=True)
-            elif file_ext == "rst":
-                loader = UnstructuredRSTLoader(file_path, mode="elements")
-            elif file_ext == "xml":
-                loader = UnstructuredXMLLoader(file_path)
-            elif file_ext in ["htm", "html"]:
-                loader = BSHTMLLoader(file_path, open_encoding="unicode_escape")
-            elif file_ext == "md":
-                loader = TextLoader(file_path, autodetect_encoding=True)
-            elif file_content_type == "application/epub+zip":
-                loader = UnstructuredEPubLoader(file_path)
-            elif (
-                file_content_type
-                == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                or file_ext == "docx"
-            ):
-                loader = Docx2txtLoader(file_path)
-            elif file_content_type in [
-                "application/vnd.ms-excel",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ] or file_ext in ["xls", "xlsx"]:
-                loader = UnstructuredExcelLoader(file_path)
-            elif file_content_type in [
-                "application/vnd.ms-powerpoint",
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            ] or file_ext in ["ppt", "pptx"]:
-                loader = UnstructuredPowerPointLoader(file_path)
-            elif file_ext == "msg":
-                loader = OutlookMessageLoader(file_path)
-            elif self._is_text_file(file_ext, file_content_type):
-                loader = TextLoader(file_path, autodetect_encoding=True)
-            else:
-                loader = TextLoader(file_path, autodetect_encoding=True)
+        # 1) Excel ingestion
+        if ext in EXCEL_EXTS or ct in EXCEL_MIME_TYPES:
+            base = os.path.splitext(os.path.basename(file_path))[0]
+            db_path = os.path.join(DATA_DIR, 'sqlite', f'{base}.db')
+            return _excel_to_sqlite(self, file_path, db_path, table_name=base)
 
-        return loader
+        # 2) Extension-specific API overrides
+        if ext == 'txt' and (url := self.kwargs.get('CRAWL4AI_SERVER_URL')):
+            print(f"Crawl4ai URL: {url}")
+            return get_api_loader('crawl4ai', url, file_path, ct)
+        if ext == 'pdf' and (url := self.kwargs.get('DOCLING_SERVER_URL')):
+            return get_api_loader('docling', url, file_path, ct)
+
+        # 3) Global API engines by engine name
+        # if self.engine in ('docling', 'crawl4ai'):
+        #     url_key = f"{self.engine.upper()}_SERVER_URL"
+        #     if (url := self.kwargs.get(url_key)):
+        #         return get_api_loader(self.engine, url, file_path, ct)
+
+        # 4) Azure Document Intelligence
+        if self.engine == 'document_intelligence':
+            ep = self.kwargs.get('DOCUMENT_INTELLIGENCE_ENDPOINT')
+            key = self.kwargs.get('DOCUMENT_INTELLIGENCE_KEY')
+            if ep and key and (ext in {'pdf','docx','ppt','pptx'} or ct.startswith('application/')):
+                return AzureAIDocumentIntelligenceLoader(
+                    file_path=file_path, api_endpoint=ep, api_key=key)
+
+        # 5) Mistral OCR
+        if self.engine == 'mistral_ocr' and self.kwargs.get('MISTRAL_OCR_API_KEY') and ext == 'pdf':
+            return MistralLoader(api_key=self.kwargs['MISTRAL_OCR_API_KEY'], file_path=file_path)
+
+        # 6) Static file-based loaders
+        if fn := FILE_LOADERS.get(ext):
+            return fn(file_path, ct, self.kwargs)
+
+        # 7) EPUB fallback
+        if ct == 'application/epub+zip':
+            return UnstructuredEPubLoader(file_path)
+
+        # 8) Default
+        return TextLoader(file_path, autodetect_encoding=True)
