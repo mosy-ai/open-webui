@@ -116,8 +116,7 @@ class TikaLoader:
             return [Document(page_content=text, metadata=headers)]
         else:
             raise Exception(f"Error calling Tika: {r.reason}")
-
-
+        
 class DoclingLoader:
     def __init__(self, url, file_path=None, mime_type=None):
         self.url = url.rstrip("/")

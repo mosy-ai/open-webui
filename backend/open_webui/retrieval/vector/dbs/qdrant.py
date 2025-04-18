@@ -170,6 +170,7 @@ class QdrantClient:
                 limit=limit,
                 # score_threshold=self.fusion_threshold,
             )
+            log.info(f"query_response: {query_response}")
         else:
             query_response = self.client.query_points(
                 collection_name=collection_name,

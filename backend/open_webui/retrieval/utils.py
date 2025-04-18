@@ -304,11 +304,32 @@ def query_collection_with_hybrid_search(
     k_reranker: int,
     r: float,
 ) -> dict:
+    """
+    Query the collection with hybrid search.
+    """
     results = []
     error = False
     
     log.info(f"query_collection_with_hybrid_search:collection_names {collection_names}")
     log.info(f"query_collection_with_hybrid_search:queries {queries}") 
+    log.info(f"query_collection_with_hybrid_search:k {k}")
+    
+    def process_query_task(collection_name, query):
+        try:
+            result = query_doc_with_hybrid_search(
+                collection_name=collection_name,
+                collection_result=None,
+                query=query,
+                embedding_function=embedding_function,
+                k=k,
+                reranking_function=reranking_function,
+                k_reranker=k_reranker,
+                r=r,
+            )
+            return result, None
+        except Exception as e:
+            log.exception(f"Error when querying the collection with hybrid_search: {e}")
+            return None, e
     
     # Create work items
     work_items = []
@@ -324,22 +345,27 @@ def query_collection_with_hybrid_search(
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = [
             executor.submit(
-                query_doc_with_hybrid_search,
+                process_query_task,
                 collection_name,
-                query,
-                embedding_function,
-                k,
-                reranking_function,
-                r
+                query
             )
             for collection_name, query in work_items
         ]
         
         # Gather results as they complete
         for future in concurrent.futures.as_completed(futures):
-            result = future.result()
-            if result is not None:
+            result, err = future.result()
+            if err is not None:
+                error = True
+            elif result is not None:
                 results.append(result)
+        
+        if error and not results:
+            raise Exception(
+                "Hybrid search failed for all collections. Using Non-hybrid search as fallback."
+            )
+                
+    log.info(f"query_collection_with_hybrid_search:results {results}")
                 
     log.info(f"query_collection_with_hybrid_search:total search result {len(results)}")
 
@@ -529,8 +555,10 @@ def get_sources_from_files(
                                     "Error when using hybrid search, using"
                                     " non hybrid search as fallback."
                                 )
+                                log.error(f"Error when using hybrid search: {e}")
 
                         if (not hybrid_search) or (context is None):
+                            log.info(f"query_collection:collection_names {collection_names}")
                             context = query_collection(
                                 collection_names=collection_names,
                                 queries=queries,
