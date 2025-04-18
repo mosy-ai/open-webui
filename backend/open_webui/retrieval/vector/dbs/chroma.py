@@ -91,6 +91,8 @@ class ChromaClient:
                 )
             return None
         except Exception as e:
+            log.error(e)
+            # loguru with tr
             return None
 
     def query(
