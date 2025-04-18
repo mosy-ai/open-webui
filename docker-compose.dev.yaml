@@ -28,6 +28,15 @@ services:
     networks:
       - redstone
 
+  data-processor:
+    build:
+      dockerfile: Dockerfile.data-processor
+    container_name: data-processor
+    volumes:
+      - backend/data:/app/backend/data
+    networks:
+      - redstone
+
   redis:
     image: redis:latest
     container_name: redis
