@@ -33,7 +33,7 @@ services:
       dockerfile: Dockerfile.data-processor
     container_name: data-processor
     volumes:
-      - backend/data:/app/backend/data
+      - ./backend/data:/app/backend/data
     networks:
       - redstone
 
