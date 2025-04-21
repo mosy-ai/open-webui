@@ -1,7 +1,7 @@
-from data_processing.pdf_extractors.abstract_extraction import (
+from src.pdf_extractors.abstract_extraction import (
     AbstractMarkdownExtractor,
 )
-from data_processing.pdf_extractors.markdown_extractor import (
+from src.pdf_extractors.markdown_extractor import (
     DoclingExtractor,
     MarkItDownExtractor,
     GeminiExtractor,

@@ -2,16 +2,12 @@ import os
 import tempfile
 import shutil
 
-from docling.document_converter import DocumentConverter
-from markitdown import MarkItDown
 from google import genai
 from pypdf import PdfReader, PdfWriter
-
-from data_processing.pdf_extractors.abstract_extraction import (
+from src.pdf_extractors.abstract_extraction import (
     AbstractMarkdownExtractor,
 )
-from data_processing.pdf_extractors.validator import validate_output
-
+from src.pdf_extractors.validator import validate_output
 
 class MarkItDownExtractor(AbstractMarkdownExtractor):
     @validate_output(lambda result: result is not None and result.strip() != "")
@@ -20,6 +16,8 @@ class MarkItDownExtractor(AbstractMarkdownExtractor):
         Downloads the document from the URL provided in `source` and converts it using MarkItDown.
         Returns the markdown content.
         """
+        from markitdown import MarkItDown
+        
         try:
             md = MarkItDown()
             result = md.convert(source)
@@ -35,6 +33,8 @@ class DoclingExtractor(AbstractMarkdownExtractor):
         Downloads the document from the URL provided in `source`,
         converts it using DocumentConverter, and returns the markdown content.
         """
+        from docling.document_converter import DocumentConverter
+        
         try:
             converter = DocumentConverter()
             result = converter.convert(source)

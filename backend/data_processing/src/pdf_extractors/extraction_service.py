@@ -1,6 +1,6 @@
 from typing import List
 
-from data_processing.pdf_extractors.factories import AbstractExtractorFactory
+from src.pdf_extractors.factories import AbstractExtractorFactory
 
 
 class MarkdownExtractionService:

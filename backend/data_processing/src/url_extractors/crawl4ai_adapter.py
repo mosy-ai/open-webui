@@ -4,7 +4,7 @@ from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
     
-from data_processing.url_extractors.interface import CrawlerInterface, CrawlResult
+from src.url_extractors.interface import CrawlerInterface, CrawlResult
 
 class CrawlError(Exception):
     """Custom exception for crawl failures"""
