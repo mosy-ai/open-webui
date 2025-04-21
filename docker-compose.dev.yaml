@@ -30,12 +30,18 @@ services:
 
   data-processor:
     build:
-      dockerfile: Dockerfile.data-processor
+      context: ./backend/data_processing
+      dockerfile: Dockerfile
     container_name: data-processor
+    
+    # command: ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    tty: true
+    command: tail -f /dev/null
+    volumes:
+      - ./backend/data_processing:/app
+      - ./backend/data:/app/backend/data
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-    volumes:
-      - ./backend/data:/app/backend/data
     networks:
       - redstone
 
