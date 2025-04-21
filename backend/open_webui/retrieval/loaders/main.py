@@ -24,9 +24,9 @@ from langchain_community.document_loaders import (
     YoutubeLoader,
 )
 from langchain_core.documents import Document
-from langchain_community.utilities import SQLDatabase
-from langchain_community.llms import OpenAI
-from langchain_experimental.sql import SQLDatabaseChain
+# from langchain_community.utilities import SQLDatabase
+# from langchain_community.llms import OpenAI
+# from langchain_experimental.sql import SQLDatabaseChain
 
 
 from open_webui.retrieval.loaders.mistral import MistralLoader
