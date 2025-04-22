@@ -4,3 +4,4 @@ crawl4ai
 tenacity
 fastapi
 uvicorn
+google-genai

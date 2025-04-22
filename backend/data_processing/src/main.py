@@ -5,14 +5,15 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
 
-from data_processing.pdf_extractors.extraction_service import (
+from src.pdf_extractors.extraction_service import (
     MarkdownExtractionService,
 )
-from data_processing.pdf_extractors.factories import (
+from src.pdf_extractors.factories import (
     DoclingFactory,
     MarkItDownFactory,
+    GeminiFactory
 )
-from data_processing.url_extractors.crawl4ai_adapter import (
+from src.url_extractors.crawl4ai_adapter import (
     Crawl4AIAdapter,
 )
 
@@ -53,8 +54,9 @@ async def pdf_extractor_endpoint(payload: ExtractionRequest):
     try:
         # Insert your extraction logic here. For demonstration, we'll use dummy text.
         factories = [
+            GeminiFactory(),
             DoclingFactory(),
-            MarkItDownFactory()
+            MarkItDownFactory(),
         ] 
         extraction_service = MarkdownExtractionService(factories)
         result = extraction_service.extract(file_path)
