@@ -285,7 +285,7 @@ class Loader:
             return get_api_loader('crawl4ai', url, file_path, ct)
         if ext == 'pdf':
             pipeline = get_pipeline('pdf', {
-                'pdf_pipeline_opts': {'use_gemini': True}
+                'pdf_pipeline_opts': {'use_docling': True}
             })
             data = {'source': file_path}
             result = pipeline.execute(data)
