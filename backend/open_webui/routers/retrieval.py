@@ -96,6 +96,8 @@ from open_webui.env import (
 )
 from open_webui.constants import ERROR_MESSAGES
 
+from dropper import get_pipeline
+
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["RAG"])
 
@@ -1127,6 +1129,7 @@ def process_file(
             file_path = file.path
             if file_path:
                 file_path = Storage.get_file(file_path)
+                
                 loader = Loader(
                     engine=request.app.state.config.CONTENT_EXTRACTION_ENGINE,
                     TIKA_SERVER_URL=request.app.state.config.TIKA_SERVER_URL,

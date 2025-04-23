@@ -28,6 +28,8 @@ from langchain_core.documents import Document
 # from langchain_community.llms import OpenAI
 # from langchain_experimental.sql import SQLDatabaseChain
 
+from dropper import get_pipeline
+
 
 from open_webui.retrieval.loaders.mistral import MistralLoader
 from open_webui.retrieval.loaders.custom_loader.custom_loader_factory import get_api_loader
@@ -281,8 +283,14 @@ class Loader:
         if ext == 'txt' and (url := self.kwargs.get('CRAWL4AI_SERVER_URL')):
             print(f"Crawl4ai URL: {url}")
             return get_api_loader('crawl4ai', url, file_path, ct)
-        if ext == 'pdf' and (url := self.kwargs.get('DOCLING_SERVER_URL')):
-            return get_api_loader('docling', url, file_path, ct)
+        if ext == 'pdf':
+            pipeline = get_pipeline('pdf', {
+                'pdf_pipeline_opts': {'use_gemini': True}
+            })
+            data = {'source': file_path}
+            result = pipeline.execute(data)
+            doc = result.get('doc')
+            return [Document(page_content=doc, metadata={})]
 
         # 3) Global API engines by engine name
         # if self.engine in ('docling', 'crawl4ai'):

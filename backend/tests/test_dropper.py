@@ -1,8 +1,6 @@
 # tests/test_dropper.py
 import time
-
 from dropper import get_pipeline
-
 
 def test_docling_integration():
     sample_pdf = "data/uploads/2408.09869v4.pdf"
@@ -26,3 +24,23 @@ def test_docling_integration():
     doc = result.get('doc')
     assert isinstance(doc, str)
     assert "## Docling Technical Report" in doc
+
+def test_gemini_integration():
+    sample_pdf = "data/uploads/2408.09869v4.pdf"
+    pipeline = get_pipeline('pdf', {
+        'pdf_pipeline_opts': {'use_gemini': True}
+    })
+    
+    data = {'source': sample_pdf}
+    start = time.time()
+    result = pipeline.execute(data)
+    duration = time.time() - start
+    print(f"Gemini extraction took {duration:.1f}s")
+    
+    doc = result.get('doc')
+    assert isinstance(doc, str)
+    assert "## Docling Technical Report" in doc
+    
+    
+    
+    
