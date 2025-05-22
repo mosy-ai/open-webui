@@ -72,9 +72,7 @@ from open_webui.retrieval.utils import (
     query_doc,
     query_doc_with_hybrid_search,
 )
-from open_webui.utils.misc import (
-    calculate_sha256_string, measure_time
-)
+from open_webui.utils.misc import calculate_sha256_string, measure_time
 from open_webui.utils.auth import get_admin_user, get_verified_user
 
 from open_webui.config import (
@@ -147,7 +145,7 @@ def get_rf(
             except Exception as e:
                 log.error(f"ColBERT: {e}")
                 raise Exception(ERROR_MESSAGES.DEFAULT(e))
-            
+
         # Have this condition because get_model_path will return the reranking_model if having error
         elif reranking_model == model_path:
             import sentence_transformers
@@ -162,7 +160,7 @@ def get_rf(
             except Exception as e:
                 log.error(f"CrossEncoder error: {e}")
                 raise Exception(ERROR_MESSAGES.DEFAULT(e))
-            
+
         elif reranking_model.startswith("jina-reranker"):
             try:
                 from open_webui.retrieval.models.jina_remote import JinaRemoteReranker
@@ -790,6 +788,7 @@ async def update_query_settings(
 #
 ####################################
 
+
 @measure_time
 def save_docs_to_vector_db(
     request: Request,
@@ -845,7 +844,9 @@ def save_docs_to_vector_db(
                 )
             )
 
-        log.info(f"Migrating {len(docs)} documents from {file_collection_name} to {collection_name} knowledge base collection")
+        log.info(
+            f"Migrating {len(docs)} documents from {file_collection_name} to {collection_name} knowledge base collection"
+        )
         log.info(f"Get raw data from {file_collection_name}")
         all_documents = VECTOR_DB_CLIENT.get_raw_data(
             collection_name=file_collection_name
@@ -938,7 +939,7 @@ def save_docs_to_vector_db(
 
     # This one is the content for embedding
     texts = [doc.page_content for doc in docs]
-    
+
     metadatas = []
     # This one is the content for context for the LLM to use
     context_contents = []
@@ -946,18 +947,19 @@ def save_docs_to_vector_db(
         if "context_content" in doc.metadata:
             context_contents.append(doc.metadata["context_content"])
             del doc.metadata["context_content"]
-            
-        metadatas.append({
-            **doc.metadata,
-            **(metadata if metadata else {}),
-            "embedding_config": json.dumps(
-                {
-                    "engine": request.app.state.config.RAG_EMBEDDING_ENGINE,
-                    "model": request.app.state.config.RAG_EMBEDDING_MODEL,
-                }
-            ),
-        })
-        
+
+        metadatas.append(
+            {
+                **doc.metadata,
+                **(metadata if metadata else {}),
+                "embedding_config": json.dumps(
+                    {
+                        "engine": request.app.state.config.RAG_EMBEDDING_ENGINE,
+                        "model": request.app.state.config.RAG_EMBEDDING_MODEL,
+                    }
+                ),
+            }
+        )
 
     # ChromaDB does not like datetime formats
     # for meta-data so convert them to string.
@@ -1010,13 +1012,17 @@ def save_docs_to_vector_db(
         )
         # embeddings = [[0.1] * 1024] * len(texts)
         end_time = time.time()
-        log.info(f"Time taken to run embedding_function in save_docs_to_vector_db: {end_time - start_time} seconds")
+        log.info(
+            f"Time taken to run embedding_function in save_docs_to_vector_db: {end_time - start_time} seconds"
+        )
 
         if context_contents:
-            assert len(context_contents) == len(texts), "context_contents and texts must have the same length" 
+            assert len(context_contents) == len(texts), (
+                "context_contents and texts must have the same length"
+            )
             # Override the texts in here because we want to store content field in the vector db using context contents
             texts = context_contents
-        
+
         items = [
             {
                 "id": str(uuid.uuid4()),
@@ -1026,10 +1032,11 @@ def save_docs_to_vector_db(
             }
             for idx, text in enumerate(texts)
         ]
-            
+
         VECTOR_DB_CLIENT.insert(
             collection_name=collection_name,
             items=items,
+            enable_hybrid_search=request.app.state.config.ENABLE_RAG_HYBRID_SEARCH,
         )
 
         return True
@@ -1139,9 +1146,9 @@ def process_file(
                 docs = loader.load(
                     file.filename, file.meta.get("content_type"), file_path
                 )
-                
+
                 log.info(f"docs: {docs}")
-                
+
                 docs = [
                     Document(
                         page_content=doc.page_content,
@@ -1169,12 +1176,10 @@ def process_file(
                     )
                 ]
             text_content = " ".join([doc.page_content for doc in docs])
-            
+
         source_url = docs[0].metadata.get("source")
         Files.update_file_by_id(
-            file.id,
-            new_content=text_content,
-            extra_meta={"source": source_url}
+            file.id, new_content=text_content, extra_meta={"source": source_url}
         )
 
         hash = calculate_sha256_string(text_content)
@@ -1649,7 +1654,8 @@ def query_doc_handler(
             return query_doc_with_hybrid_search(
                 collection_name=form_data.collection_name,
                 query=form_data.query,
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -1700,7 +1706,8 @@ def query_collection_handler(
             return query_collection_with_hybrid_search(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
@@ -1717,7 +1724,8 @@ def query_collection_handler(
             return query_collection(
                 collection_names=form_data.collection_names,
                 queries=[form_data.query],
-                embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
+                embedding_function=lambda query,
+                prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user
                 ),
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
