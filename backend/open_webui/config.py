@@ -713,7 +713,7 @@ LICENSE_KEY = os.environ.get("LICENSE_KEY", "")
 # STORAGE PROVIDER
 ####################################
 
-STORAGE_PROVIDER = os.environ.get("STORAGE_PROVIDER", "local")  # defaults to local, s3
+STORAGE_PROVIDER = os.environ.get("STORAGE_PROVIDER", "s3")  # defaults to local, s3
 
 S3_ACCESS_KEY_ID = os.environ.get("S3_ACCESS_KEY_ID", None)
 S3_SECRET_ACCESS_KEY = os.environ.get("S3_SECRET_ACCESS_KEY", None)
@@ -1712,7 +1712,13 @@ TIKA_SERVER_URL = PersistentConfig(
 DOCLING_SERVER_URL = PersistentConfig(
     "DOCLING_SERVER_URL",
     "rag.docling_server_url",
-    os.getenv("DOCLING_SERVER_URL", "http://docling:5001"),
+    os.getenv("DOCLING_SERVER_URL", "http://docling:8000"),
+)
+
+CRAWL4AI_SERVER_URL = PersistentConfig(
+    "CRAWL4AI_SERVER_URL",
+    "rag.crawl4ai_server_url",
+    os.getenv("CRAWL4AI_SERVER_URL", "http://crawl4ai:8000"),
 )
 
 DOCUMENT_INTELLIGENCE_ENDPOINT = PersistentConfig(
@@ -1726,7 +1732,6 @@ DOCUMENT_INTELLIGENCE_KEY = PersistentConfig(
     "rag.document_intelligence_key",
     os.getenv("DOCUMENT_INTELLIGENCE_KEY", ""),
 )
-
 
 BYPASS_EMBEDDING_AND_RETRIEVAL = PersistentConfig(
     "BYPASS_EMBEDDING_AND_RETRIEVAL",

@@ -59,6 +59,7 @@ class FileModel(BaseModel):
 
 class FileMeta(BaseModel):
     name: Optional[str] = None
+    source: Optional[str] = None
     content_type: Optional[str] = None
     size: Optional[int] = None
 
@@ -190,15 +191,32 @@ class FilesTable:
             except Exception:
                 return None
 
-    def update_file_data_by_id(self, id: str, data: dict) -> Optional[FileModel]:
+    def update_file_by_id(
+        self,
+        id: str,
+        *,
+        new_content: str | None = None,
+        extra_meta: dict | None = None
+    ) -> Optional[FileModel]:
+        """
+        Update both the file.data['content'] and the file.meta dict in one call.
+        - new_content: if provided, will overwrite file.data['content']
+        - extra_meta: if provided, will be merged into file.meta
+        """
         with get_db() as db:
             try:
                 file = db.query(File).filter_by(id=id).first()
-                file.data = {**(file.data if file.data else {}), **data}
+                # 1) Update the stored text
+                if new_content is not None:
+                    file.data = {**(file.data or {}), "content": new_content}
+
+                # 2) Update/merge metadata
+                if extra_meta:
+                    file.meta = {**(file.meta or {}), **extra_meta}
+
                 db.commit()
                 return FileModel.model_validate(file)
-            except Exception as e:
-
+            except Exception:
                 return None
 
     def update_file_metadata_by_id(self, id: str, meta: dict) -> Optional[FileModel]:

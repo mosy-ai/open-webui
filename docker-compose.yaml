@@ -27,6 +27,20 @@ services:
     networks:
       - redstone
 
+  # data-processor:
+  #   build:
+  #     context: ./backend/data_processing
+  #     dockerfile: Dockerfile
+  #   container_name: data-processor
+  #   command: ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+  #   volumes:
+  #     - ./backend/data_processing:/app
+  #     - open-webui:/app/backend/data
+  #   environment:
+  #     - GEMINI_API_KEY=${GEMINI_API_KEY}
+  #   networks:
+  #     - redstone
+
   redis:
     image: redis:latest
     container_name: redis
