@@ -172,6 +172,8 @@ COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 
 # copy backend files
 COPY --chown=$UID:$GID ./backend .
+COPY --chown=$UID:$GID ./backend/Dropper ./Dropper
+RUN pip install -e ./Dropper
 
 EXPOSE 8080
 
