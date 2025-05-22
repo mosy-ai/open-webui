@@ -233,6 +233,8 @@ EXCEL_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
+DOCLING_SUPPORTED_EXTS = ["pdf", "docx", "ppt", "pptx", "xlsx", "md", "html", "xhtml", "csv", "txt"]
+
 
 class Loader:
     def __init__(self, engine: str = "", **kwargs):
@@ -274,16 +276,17 @@ class Loader:
         print(f"Ext: {ext}, CT: {ct}")
 
         # 1) Excel ingestion
-        if ext in EXCEL_EXTS or ct in EXCEL_MIME_TYPES:
-            base = os.path.splitext(os.path.basename(file_path))[0]
-            db_path = os.path.join(DATA_DIR, 'sqlite', f'{base}.db')
-            return _excel_to_sqlite(self, file_path, db_path, table_name=base)
+        # if ext in EXCEL_EXTS or ct in EXCEL_MIME_TYPES:
+        #     base = os.path.splitext(os.path.basename(file_path))[0]
+        #     db_path = os.path.join(DATA_DIR, 'sqlite', f'{base}.db')
+            # return _excel_to_sqlite(self, file_path, db_path, table_name=base)
 
         # 2) Extension-specific API overrides
-        if ext == 'txt' and (url := self.kwargs.get('CRAWL4AI_SERVER_URL')):
-            print(f"Crawl4ai URL: {url}")
-            return get_api_loader('crawl4ai', url, file_path, ct)
-        if ext == 'pdf':
+        # if ext == 'txt' and (url := self.kwargs.get('CRAWL4AI_SERVER_URL')):
+        #     print(f"Crawl4ai URL: {url}")
+        #     return get_api_loader('crawl4ai', url, file_path, ct)
+        
+        if ext in DOCLING_SUPPORTED_EXTS:
             pipeline = get_pipeline('pdf', {
                 'pdf_pipeline_opts': {'use_docling': True}
             })
